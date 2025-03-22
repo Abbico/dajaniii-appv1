@@ -6,5 +6,4 @@ plotly
 yfinance
 openai
 langchain
-langchain-openai
 pypdf
