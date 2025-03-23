@@ -1,2 +1,11 @@
 streamlit
+pandas
+numpy
+matplotlib
+plotly
+yfinance
+openai
+langchain
+langchain-openai
+pypdf
 requests
