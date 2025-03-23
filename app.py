@@ -175,3 +175,41 @@ if "df" in st.session_state:
 
 # --- Footer ---
 st.markdown("<hr><center style='color:gray'>DAJANIII • Stock AI Assistant<br>Updated: {}</center>".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), unsafe_allow_html=True)
+
+# --- OpenRouter Support ---
+import requests
+
+def generate_openrouter_response(query, df, risk, tax, horizon, openrouter_key):
+    try:
+        prices = get_current_prices(df['Stock'])
+        metrics = calculate_portfolio_metrics(df, prices)
+        summary = f"Portfolio value: ${metrics['current_value'].sum():,.2f}\n"
+        summary += f"Total gain: ${metrics['unrealized_gain'].sum():,.2f}\n"
+        top = metrics.iloc[metrics['unrealized_gain_percent'].idxmax()]
+        worst = metrics.iloc[metrics['unrealized_gain_percent'].idxmin()]
+        summary += f"Top performer: {top['symbol']} ({top['unrealized_gain_percent']:.2f}%)\n"
+        summary += f"Worst performer: {worst['symbol']} ({worst['unrealized_gain_percent']:.2f}%)\n"
+
+        prompt = f"""You are a financial assistant. User profile: Risk={risk}, Tax={tax}, Horizon={horizon}.
+        Portfolio Summary:
+        {summary}
+        Answer the question: {query}"""
+
+        headers = {
+            "Authorization": f"Bearer {openrouter_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "openai/gpt-3.5-turbo",
+            "messages": [
+                {"role": "system", "content": "You are a smart financial assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        }
+
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
+    except Exception as e:
+        return f"❌ OpenRouter Error: {str(e)}"
