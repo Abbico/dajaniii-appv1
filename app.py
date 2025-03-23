@@ -305,6 +305,21 @@ def calculate_stochastic(high, low, close, k_window=14, d_window=3, smooth=3):
         'D': d
     })
 
+# Function to update the combined portfolio
+def update_combined_portfolio():
+    if st.session_state.portfolios:
+        # Combine all portfolios
+        combined = pd.concat([df for df in st.session_state.portfolios.values()])
+        
+        # Group by stock to combine positions
+        combined = combined.groupby('Stock').agg({
+            'Shares': 'sum',
+            'Purchase Price': lambda x: np.average(x, weights=combined.loc[x.index, 'Shares']),
+            'Term': lambda x: 'Long' if 'Long' in x.values else 'Short'
+        }).reset_index()
+        
+        st.session_state.combined_portfolio = combined
+
 # Main content
 with main_container:
     # Portfolio upload section with fun styling
@@ -315,15 +330,26 @@ with main_container:
     </div>
     """, unsafe_allow_html=True)
     
-    # Single upload area for any PDF
-    uploaded_file = st.file_uploader("Upload Portfolio PDF", type="pdf", help="Upload any portfolio PDF to extract holdings data")
-    
-    # Portfolio storage
+    # Portfolio storage initialization
     if 'portfolios' not in st.session_state:
         st.session_state.portfolios = {}
         
     if 'combined_portfolio' not in st.session_state:
         st.session_state.combined_portfolio = pd.DataFrame()
+    
+    # Portfolio management section
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        # Single upload area for any PDF
+        uploaded_file = st.file_uploader("Upload Portfolio PDF", type="pdf", help="Upload any portfolio PDF to extract holdings data")
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Clear All Portfolios", type="secondary"):
+            st.session_state.portfolios = {}
+            st.session_state.combined_portfolio = pd.DataFrame()
+            st.success("All portfolios have been cleared!")
     
     # Process uploaded PDF
     if uploaded_file:
@@ -401,21 +427,6 @@ with main_container:
                     
         except Exception as e:
             st.error(f"Error processing PDF: {str(e)}")
-    
-    # Function to update the combined portfolio
-    def update_combined_portfolio():
-        if st.session_state.portfolios:
-            # Combine all portfolios
-            combined = pd.concat([df for df in st.session_state.portfolios.values()])
-            
-            # Group by stock to combine positions
-            combined = combined.groupby('Stock').agg({
-                'Shares': 'sum',
-                'Purchase Price': lambda x: np.average(x, weights=combined.loc[x.index, 'Shares']),
-                'Term': lambda x: 'Long' if 'Long' in x.values else 'Short'
-            }).reset_index()
-            
-            st.session_state.combined_portfolio = combined
     
     # Display portfolios if available
     if st.session_state.portfolios:
@@ -1100,6 +1111,18 @@ with main_container:
         for i, portfolio_name in enumerate(st.session_state.portfolios.keys(), 1):
             with selected_tab[i]:
                 df = st.session_state.portfolios[portfolio_name].copy()
+                
+                # Add portfolio management options
+                col1, col2 = st.columns([3, 1])
+                
+                with col2:
+                    if st.button(f"Delete {portfolio_name}", key=f"delete_{portfolio_name}"):
+                        # Remove this portfolio
+                        del st.session_state.portfolios[portfolio_name]
+                        # Update combined portfolio
+                        update_combined_portfolio()
+                        st.success(f"Portfolio {portfolio_name} has been deleted!")
+                        st.rerun()
                 
                 # Get current prices
                 current_prices = get_stock_prices(df['Stock'].unique())
