@@ -3,3 +3,9 @@ pandas
 yfinance
 plotly
 pypdf
+pdfplumber
+pandas-ta
+ta
+scikit-learn
+matplotlib
+tabula-py
