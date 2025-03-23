@@ -1,92 +1,126 @@
 
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import plotly.express as px
+import yfinance as yf
 import io
-from datetime import datetime
-from pypdf import PdfReader
 import re
+from pypdf import PdfReader
 
-st.set_page_config(page_title="DAJANIII", layout="wide")
+st.set_page_config(page_title="📊 DAJANIII v2", layout="wide")
 
-# Hidden OpenRouter key
-_default_openrouter_key = "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"
-
-# Logo header
 st.markdown("""
-    <div style='text-align: center; padding: 1rem; background: #1c1c1c; color: white; border-radius: 10px;'>
-        <img src='logo.png' width='100'><h1>DAJANIII</h1><p>AI-Powered Stock Assistant</p>
+    <style>
+    .stApp {
+        background: linear-gradient(120deg, #f6d365 0%, #fda085 100%);
+        font-family: 'Comic Sans MS', cursive, sans-serif;
+    }
+    .title-container {
+        text-align: center;
+        background-color: #ffcc00;
+        padding: 1rem;
+        border-radius: 15px;
+        margin-bottom: 1rem;
+    }
+    .title-container h1 {
+        color: #2f2f2f;
+    }
+    .portfolio-card {
+        background-color: #fff;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        margin-bottom: 1rem;
+    }
+    </style>
+    <div class="title-container">
+        <h1>📈 DAJANIII Portfolio Playground</h1>
+        <p>Upload your portfolio PDFs and watch the magic!</p>
     </div>
 """, unsafe_allow_html=True)
 
-with st.sidebar:
-    st.header("API Provider")
-    api_provider = st.radio("Choose", ["OpenRouter", "OpenAI"])
-    api_key = st.text_input("API Key", value="", type="password", placeholder="Optional override")
-    if api_provider == "OpenRouter" and not api_key:
-        api_key = _default_openrouter_key
+# Store multiple portfolios in session
+if 'portfolios' not in st.session_state:
+    st.session_state.portfolios = []
 
-    st.markdown("---")
-    st.header("Upload Portfolio")
-    csv = st.file_uploader("Upload Schwab CSV", type="csv")
-    pdf = st.file_uploader("Upload IBKR PDF", type="pdf")
+pdf = st.file_uploader("📄 Upload any Portfolio PDF", type="pdf")
 
-# Default example portfolio
-df = pd.DataFrame({'Stock': ['AAPL', 'MSFT'], 'Shares': [10, 5], 'Purchase Price': [150, 250], 'Term': ['Long', 'Short']})
-
-if csv:
+def extract_pdf_data(pdf_bytes):
     try:
-        raw = csv.read().decode("utf-8")
-        df_csv = pd.read_csv(io.StringIO(raw), skiprows=3)
-        df_csv.columns = [c.split('(')[0].strip() for c in df_csv.columns]
-        df_csv = df_csv.rename(columns={'Symbol': 'Stock', 'Qty': 'Shares', 'Price': 'Purchase Price'})
-        df = df_csv[['Stock', 'Shares', 'Purchase Price']].dropna()
-        df['Term'] = 'Long'
-    except Exception as e:
-        st.error(f"CSV Error: {e}")
-
-elif pdf:
-    try:
-        reader = PdfReader(io.BytesIO(pdf.read()))
-        content = ""
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
         for p in reader.pages:
-            content += p.extract_text()
-        rows = re.findall(r"([A-Z]+)\s+([\d,]+)\s+([\d.]+)", content)
-        df = pd.DataFrame([{
-            'Stock': s,
-            'Shares': float(q.replace(",", "")),
-            'Purchase Price': float(p),
-            'Term': 'Long'
-        } for s, q, p in rows])
-    except Exception as e:
-        st.error(f"PDF Error: {e}")
+            text += p.extract_text()
+        entries = re.findall(r"([A-Z]{2,5})\s+(\d[\d,]*)\s+(\d+\.\d+)", text)
+        return pd.DataFrame([{
+            'Stock': symbol,
+            'Shares': float(shares.replace(",", "")),
+            'Purchase Price': float(price),
+        } for symbol, shares, price in entries])
+    except:
+        return pd.DataFrame()
 
-@st.cache_data(ttl=300)
-def prices(symbols):
-    out = {s: 0 for s in symbols}
-    for s in symbols:
-        try:
-            out[s] = yf.Ticker(s).history(period="1d")['Close'].iloc[-1]
-        except:
-            continue
-    return out
+if pdf:
+    df = extract_pdf_data(pdf.read())
+    if not df.empty:
+        df['Term'] = 'Long'
+        df['id'] = f"Portfolio {len(st.session_state.portfolios)+1}"
+        st.session_state.portfolios.append(df)
+        st.success(f"✅ Uploaded {df.shape[0]} positions to Portfolio {len(st.session_state.portfolios)}")
 
-if not df.empty:
-    st.subheader("📈 Portfolio Overview")
-    live = prices(df['Stock'])
-    df['Current Price'] = df['Stock'].map(live)
-    df['Value'] = df['Shares'] * df['Current Price']
-    df['Purchase'] = df['Shares'] * df['Purchase Price']
-    df['Gain %'] = (df['Value'] - df['Purchase']) / df['Purchase'] * 100
+# Combine all portfolios
+if st.session_state.portfolios:
+    all_df = pd.concat(st.session_state.portfolios)
+    grouped_df = all_df.groupby(['Stock'], as_index=False).agg({
+        'Shares': 'sum',
+        'Purchase Price': 'mean',
+        'Term': 'first'
+    })
 
-    st.dataframe(df, use_container_width=True)
+    st.markdown('<div class="portfolio-card">', unsafe_allow_html=True)
+    st.subheader("📚 Combined Portfolio")
+    st.dataframe(grouped_df)
 
-    total = df['Value'].sum()
-    gain = total - df['Purchase'].sum()
-    st.metric("Total Value", f"${{total:,.2f}}")
-    st.metric("Total Gain/Loss", f"${{gain:,.2f}}")
+    symbols = grouped_df['Stock'].tolist()
 
-    st.subheader("📊 Allocation")
-    fig = px.pie(df, values='Value', names='Stock', title='Portfolio Allocation')
+    @st.cache_data(ttl=300)
+    def get_prices(symbols):
+        results = {}
+        for s in symbols:
+            try:
+                results[s] = yf.Ticker(s).history(period="1d")['Close'].iloc[-1]
+            except:
+                results[s] = 0
+        return results
+
+    prices = get_prices(symbols)
+    grouped_df['Current Price'] = grouped_df['Stock'].map(prices)
+    grouped_df['Current Value'] = grouped_df['Shares'] * grouped_df['Current Price']
+    grouped_df['Purchase Value'] = grouped_df['Shares'] * grouped_df['Purchase Price']
+    grouped_df['Gain %'] = ((grouped_df['Current Value'] - grouped_df['Purchase Value']) / grouped_df['Purchase Value']) * 100
+
+    st.metric("💰 Total Value", f"${grouped_df['Current Value'].sum():,.2f}")
+    st.metric("📈 Gain/Loss", f"{grouped_df['Gain %'].mean():.2f}%")
+
+    # Pie chart
+    st.subheader("🍩 Portfolio Allocation")
+    fig = px.pie(grouped_df, names='Stock', values='Current Value', title="By Market Value")
     st.plotly_chart(fig, use_container_width=True)
+
+    # Bar comparison with index
+    st.subheader("📊 Compare with Index")
+    index_symbol = st.selectbox("Compare against:", ['^GSPC', '^IXIC', '^DJI'], index=0)
+    try:
+        index_data = yf.Ticker(index_symbol).history(period="30d")
+        stock_data = {}
+        for stock in symbols:
+            hist = yf.Ticker(stock).history(period="30d")
+            if not hist.empty:
+                stock_data[stock] = hist['Close']
+
+        if index_data is not None:
+            df_plot = pd.DataFrame(stock_data)
+            df_plot['Index'] = index_data['Close'].values[:len(df_plot)]
+            st.line_chart(df_plot)
+    except Exception as e:
+        st.warning(f"Unable to fetch comparison data: {e}")
