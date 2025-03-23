@@ -13,6 +13,7 @@ from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
+import os
 
 # Set page configuration with a fun title
 st.set_page_config(
@@ -141,11 +142,33 @@ st.markdown("""
 
 # Function to get base64 encoded image
 def get_base64_encoded_image(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except FileNotFoundError:
+        # Fallback to a default base64 encoded logo if file not found
+        # This is a simple chart icon as fallback
+        return "iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFEmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDIgNzkuMTYwOTI0LCAyMDE3LzA3LzEzLTAxOjA2OjM5ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ0MgKFdpbmRvd3MpIiB4bXA6Q3JlYXRlRGF0ZT0iMjAyMC0wNC0yN1QxNTozMTozOSswODowMCIgeG1wOk1vZGlmeURhdGU9IjIwMjAtMDQtMjdUMTU6NDI6MDErMDg6MDAiIHhtcDpNZXRhZGF0YURhdGU9IjIwMjAtMDQtMjdUMTU6NDI6MDErMDg6MDAiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIiBwaG90b3Nob3A6SUNDUHJvZmlsZT0ic1JHQiBJRUM2MTk2Ni0yLjEiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6YzI0MGRmNzQtY2FmMy0yMjRk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"
+
+# Try to find the logo in different locations
+def find_logo():
+    # List of possible locations to check
+    possible_paths = [
+        "logo.png",  # Current directory
+        "./logo.png",  # Explicit current directory
+        "../logo.png",  # Parent directory
+        os.path.join(os.path.dirname(__file__), "logo.png"),  # Same directory as script
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    # If logo not found, return the first path (will use fallback)
+    return "logo.png"
 
 # Logo and header with animation
-logo_base64 = get_base64_encoded_image("/home/ubuntu/portfolio_app/logo.png")
+logo_base64 = get_base64_encoded_image(find_logo())
 
 st.markdown(f"""
 <div style='text-align: center; padding: 1rem; background: linear-gradient(135deg, #2A2A72, #009FFD); color: white; border-radius: 20px; margin-bottom: 20px;' class='floating'>
