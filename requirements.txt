@@ -1,9 +1,2 @@
 streamlit
-pandas
-numpy
-matplotlib
-plotly
-yfinance
-openai
-langchain
-pypdf
+requests
