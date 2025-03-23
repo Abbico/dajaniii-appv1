@@ -1,109 +1,90 @@
 
+# [START DAJANIII APP]
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
+import plotly.express as px
+import io
+from datetime import datetime
+from pypdf import PdfReader
+import re
 
-st.set_page_config(page_title="DAJANIII Assistant", layout="wide")
+# Page setup
+st.set_page_config(page_title="DAJANIII", layout="wide")
 
-st.title("📊 DAJANIII Stock Trading Assistant")
+st.markdown("""
+    <div style='text-align: center; padding: 1rem; background: #222; color: white; border-radius: 10px;'>
+        <img src='logo.png' width='100'><h1>DAJANIII</h1><p>AI-Powered Stock Assistant</p>
+    </div>
+""", unsafe_allow_html=True)
 
-# Settings
-st.sidebar.header("Settings")
-use_openrouter = st.sidebar.radio("Use which AI Provider?", ["OpenRouter", "OpenAI"], index=0)
+with st.sidebar:
+    st.header("API Provider")
+    api_provider = st.radio("Choose", ["OpenRouter", "OpenAI"])
+    api_key = st.text_input("API Key", value="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", type="password")
 
-if use_openrouter == "OpenRouter":
-    openrouter_key = st.sidebar.text_input("OpenRouter API Key", type="password")
-else:
-    openai_key = st.sidebar.text_input("OpenAI API Key", type="password")
+    st.markdown("---")
+    st.header("Upload Portfolio")
+    csv = st.file_uploader("Upload Schwab CSV", type="csv")
+    pdf = st.file_uploader("Upload IBKR PDF", type="pdf")
 
-@st.cache_data(ttl=300)
-def get_current_prices(symbols):
-    prices = {}
-    for symbol in symbols:
-        try:
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="1d")
-            prices[symbol] = hist['Close'].iloc[-1] if not hist.empty else 0
-        except:
-            prices[symbol] = 0
-    return prices
+# Fallback sample
+df = pd.DataFrame({'Stock': ['AAPL', 'MSFT'], 'Shares': [10, 5], 'Purchase Price': [150, 250], 'Term': ['Long', 'Short']})
 
-def calculate_portfolio_metrics(df, current_prices):
-    df = df.copy()
-    df['symbol'] = df['Stock']
-    df['shares'] = df['Shares']
-    df['purchase_price'] = df['Purchase Price']
-    df['current_price'] = df['symbol'].map(current_prices)
-    df['current_value'] = df['shares'] * df['current_price']
-    df['purchase_value'] = df['shares'] * df['purchase_price']
-    df['unrealized_gain'] = df['current_value'] - df['purchase_value']
-    df['unrealized_gain_percent'] = (df['unrealized_gain'] / df['purchase_value']) * 100
-    return df
-
-def generate_openrouter_response(query, df, risk, tax, horizon, openrouter_key):
+if csv:
     try:
-        prices = get_current_prices(df['Stock'])
-        metrics = calculate_portfolio_metrics(df, prices)
-        summary = (
-            f"Portfolio value: ${metrics['current_value'].sum():,.2f}\n"
-            f"Total gain: ${metrics['unrealized_gain'].sum():,.2f}\n"
-            f"Top performer: {metrics.iloc[metrics['unrealized_gain_percent'].idxmax()]['symbol']} "
-            f"({metrics.iloc[metrics['unrealized_gain_percent'].idxmax()]['unrealized_gain_percent']:.2f}%)\n"
-            f"Worst performer: {metrics.iloc[metrics['unrealized_gain_percent'].idxmin()]['symbol']} "
-            f"({metrics.iloc[metrics['unrealized_gain_percent'].idxmin()]['unrealized_gain_percent']:.2f}%)"
-        )
-
-        prompt = f"""
-        You are a financial assistant. User profile:
-        Risk: {risk}
-        Tax Sensitivity: {tax}
-        Investment Horizon: {horizon}
-
-        Portfolio Summary:
-        {summary}
-
-        Answer the question: {query}
-        """
-
-        headers = {
-            "Authorization": f"Bearer {openrouter_key}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": "openai/gpt-3.5-turbo",
-            "messages": [
-                {"role": "system", "content": "You are a smart financial assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        }
-
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()['choices'][0]['message']['content']
+        raw = csv.read().decode("utf-8")
+        df_csv = pd.read_csv(io.StringIO(raw), skiprows=3)
+        df_csv.columns = [c.split('(')[0].strip() for c in df_csv.columns]
+        df_csv = df_csv.rename(columns={'Symbol': 'Stock', 'Qty': 'Shares', 'Price': 'Purchase Price'})
+        df = df_csv[['Stock', 'Shares', 'Purchase Price']].dropna()
+        df['Term'] = 'Long'
     except Exception as e:
-        return f"❌ OpenRouter Error: {str(e)}"
+        st.error(f"CSV Error: {e}")
 
-# Sample portfolio
-sample_portfolio = pd.DataFrame({
-    'Stock': ['AAPL', 'MSFT', 'GOOGL'],
-    'Shares': [10, 5, 3],
-    'Purchase Price': [150, 200, 1800]
-})
+elif pdf:
+    try:
+        reader = PdfReader(io.BytesIO(pdf.read()))
+        content = ""
+        for p in reader.pages:
+            content += p.extract_text()
+        rows = re.findall(r"([A-Z]+)\s+([\d,]+)\s+([\d.]+)", content)
+        df = pd.DataFrame([{
+            'Stock': s,
+            'Shares': float(q.replace(",", "")),
+            'Purchase Price': float(p),
+            'Term': 'Long'
+        } for s, q, p in rows])
+    except Exception as e:
+        st.error(f"PDF Error: {e}")
 
-st.subheader("📁 Portfolio Preview")
-st.dataframe(sample_portfolio)
+# Prices
+@st.cache_data(ttl=300)
+def prices(symbols):
+    out = {}
+    for s in symbols:
+        try:
+            out[s] = yf.Ticker(s).history(period="1d")['Close'].iloc[-1]
+        except:
+            out[s] = 0
+    return out
 
-query = st.text_input("Ask a question about your portfolio...")
+if not df.empty:
+    st.subheader("📈 Portfolio Overview")
+    live = prices(df['Stock'])
+    df['Current Price'] = df['Stock'].map(live)
+    df['Value'] = df['Shares'] * df['Current Price']
+    df['Purchase'] = df['Shares'] * df['Purchase Price']
+    df['Gain %'] = (df['Value'] - df['Purchase']) / df['Purchase'] * 100
 
-if query:
-    if use_openrouter == "OpenRouter":
-        if not openrouter_key:
-            st.warning("Please enter your OpenRouter API Key.")
-        else:
-            st.info("Using OpenRouter...")
-            response = generate_openrouter_response(query, sample_portfolio, "moderate", "high", "long", openrouter_key)
-            st.markdown(response)
-    else:
-        st.warning("OpenAI toggle selected, but OpenAI support is not implemented in this version.")
+    st.dataframe(df, use_container_width=True)
+
+    total = df['Value'].sum()
+    gain = total - df['Purchase'].sum()
+    st.metric("Total Value", f"${total:,.2f}")
+    st.metric("Total Gain/Loss", f"${gain:,.2f}")
+
+    st.subheader("📊 Allocation")
+    fig = px.pie(df, values='Value', names='Stock', title='Portfolio Allocation')
+    st.plotly_chart(fig, use_container_width=True)
+# [END DAJANIII APP]
