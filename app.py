@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import pdfplumber
 import re
 import numpy as np
-import pandas_ta as ta
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 import base64
@@ -231,6 +230,80 @@ with st.sidebar:
     prediction_days = st.slider("Prediction Days", min_value=7, max_value=90, value=30, step=7)
     
     st.markdown("</div>", unsafe_allow_html=True)
+
+# Technical indicator functions to replace pandas_ta dependency
+def calculate_rsi(data, window=14):
+    """Calculate RSI without pandas_ta"""
+    delta = data.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    
+    # Calculate RS and RSI
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_macd(data, fast=12, slow=26, signal=9):
+    """Calculate MACD without pandas_ta"""
+    # Calculate EMAs
+    ema_fast = data.ewm(span=fast, adjust=False).mean()
+    ema_slow = data.ewm(span=slow, adjust=False).mean()
+    
+    # Calculate MACD line
+    macd_line = ema_fast - ema_slow
+    
+    # Calculate signal line
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    
+    # Calculate histogram
+    histogram = macd_line - signal_line
+    
+    return pd.DataFrame({
+        'MACD': macd_line,
+        'Signal': signal_line,
+        'Histogram': histogram
+    })
+
+def calculate_bollinger_bands(data, window=20, num_std=2):
+    """Calculate Bollinger Bands without pandas_ta"""
+    # Calculate middle band (SMA)
+    middle_band = data.rolling(window=window).mean()
+    
+    # Calculate standard deviation
+    std_dev = data.rolling(window=window).std()
+    
+    # Calculate upper and lower bands
+    upper_band = middle_band + (std_dev * num_std)
+    lower_band = middle_band - (std_dev * num_std)
+    
+    return pd.DataFrame({
+        'Upper': upper_band,
+        'Middle': middle_band,
+        'Lower': lower_band
+    })
+
+def calculate_stochastic(high, low, close, k_window=14, d_window=3, smooth=3):
+    """Calculate Stochastic Oscillator without pandas_ta"""
+    # Calculate %K
+    lowest_low = low.rolling(window=k_window).min()
+    highest_high = high.rolling(window=k_window).max()
+    
+    # Fast %K
+    k_fast = 100 * ((close - lowest_low) / (highest_high - lowest_low))
+    
+    # Smooth %K
+    k = k_fast.rolling(window=smooth).mean()
+    
+    # Calculate %D
+    d = k.rolling(window=d_window).mean()
+    
+    return pd.DataFrame({
+        'K': k,
+        'D': d
+    })
 
 # Main content
 with main_container:
@@ -612,19 +685,24 @@ with main_container:
                             ta_df['EMA_26'] = ta_df['Close'].ewm(span=26, adjust=False).mean()
                         
                         if "RSI" in tech_indicators:
-                            ta_df['RSI'] = ta.rsi(ta_df['Close'], length=14)
+                            ta_df['RSI'] = calculate_rsi(ta_df['Close'], window=14)
                         
                         if "MACD" in tech_indicators:
-                            macd = ta.macd(ta_df['Close'])
-                            ta_df = pd.concat([ta_df, macd], axis=1)
+                            macd_data = calculate_macd(ta_df['Close'])
+                            ta_df['MACD'] = macd_data['MACD']
+                            ta_df['MACD_Signal'] = macd_data['Signal']
+                            ta_df['MACD_Hist'] = macd_data['Histogram']
                         
                         if "Bollinger Bands" in tech_indicators:
-                            bollinger = ta.bbands(ta_df['Close'], length=20, std=2)
-                            ta_df = pd.concat([ta_df, bollinger], axis=1)
+                            bb_data = calculate_bollinger_bands(ta_df['Close'])
+                            ta_df['BB_Upper'] = bb_data['Upper']
+                            ta_df['BB_Middle'] = bb_data['Middle']
+                            ta_df['BB_Lower'] = bb_data['Lower']
                         
                         if "Stochastic Oscillator" in tech_indicators:
-                            stoch = ta.stoch(ta_df['High'], ta_df['Low'], ta_df['Close'], k=14, d=3, smooth_k=3)
-                            ta_df = pd.concat([ta_df, stoch], axis=1)
+                            stoch_data = calculate_stochastic(ta_df['High'], ta_df['Low'], ta_df['Close'])
+                            ta_df['Stoch_K'] = stoch_data['K']
+                            ta_df['Stoch_D'] = stoch_data['D']
                         
                         # Create technical analysis chart
                         fig = go.Figure()
@@ -684,10 +762,10 @@ with main_container:
                                 line=dict(color='red', width=1)
                             ))
                         
-                        if "Bollinger Bands" in tech_indicators and 'BBL_20_2.0' in ta_df.columns:
+                        if "Bollinger Bands" in tech_indicators and 'BB_Lower' in ta_df.columns:
                             fig.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['BBU_20_2.0'],
+                                y=ta_df['BB_Upper'],
                                 mode='lines',
                                 name='Upper BB',
                                 line=dict(color='rgba(0,0,255,0.5)', width=1)
@@ -695,7 +773,7 @@ with main_container:
                             
                             fig.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['BBM_20_2.0'],
+                                y=ta_df['BB_Middle'],
                                 mode='lines',
                                 name='Middle BB',
                                 line=dict(color='rgba(0,0,255,0.3)', width=1)
@@ -703,7 +781,7 @@ with main_container:
                             
                             fig.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['BBL_20_2.0'],
+                                y=ta_df['BB_Lower'],
                                 mode='lines',
                                 name='Lower BB',
                                 line=dict(color='rgba(0,0,255,0.5)', width=1),
@@ -746,7 +824,7 @@ with main_container:
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Add secondary indicators in separate charts if selected
-                        if "RSI" in tech_indicators:
+                        if "RSI" in tech_indicators and 'RSI' in ta_df.columns:
                             fig_rsi = go.Figure()
                             
                             fig_rsi.add_trace(go.Scatter(
@@ -790,12 +868,12 @@ with main_container:
                             
                             st.plotly_chart(fig_rsi, use_container_width=True)
                         
-                        if "MACD" in tech_indicators and 'MACD_12_26_9' in ta_df.columns:
+                        if "MACD" in tech_indicators and 'MACD' in ta_df.columns:
                             fig_macd = go.Figure()
                             
                             fig_macd.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['MACD_12_26_9'],
+                                y=ta_df['MACD'],
                                 mode='lines',
                                 name='MACD',
                                 line=dict(color='blue', width=2)
@@ -803,18 +881,18 @@ with main_container:
                             
                             fig_macd.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['MACDs_12_26_9'],
+                                y=ta_df['MACD_Signal'],
                                 mode='lines',
                                 name='Signal',
                                 line=dict(color='red', width=1)
                             ))
                             
                             # Add MACD histogram
-                            colors = ['green' if val >= 0 else 'red' for val in ta_df['MACDh_12_26_9']]
+                            colors = ['green' if val >= 0 else 'red' for val in ta_df['MACD_Hist']]
                             
                             fig_macd.add_trace(go.Bar(
                                 x=ta_df.index,
-                                y=ta_df['MACDh_12_26_9'],
+                                y=ta_df['MACD_Hist'],
                                 name='Histogram',
                                 marker_color=colors
                             ))
@@ -832,12 +910,12 @@ with main_container:
                             
                             st.plotly_chart(fig_macd, use_container_width=True)
                         
-                        if "Stochastic Oscillator" in tech_indicators and 'STOCHk_14_3_3' in ta_df.columns:
+                        if "Stochastic Oscillator" in tech_indicators and 'Stoch_K' in ta_df.columns:
                             fig_stoch = go.Figure()
                             
                             fig_stoch.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['STOCHk_14_3_3'],
+                                y=ta_df['Stoch_K'],
                                 mode='lines',
                                 name='%K',
                                 line=dict(color='blue', width=2)
@@ -845,7 +923,7 @@ with main_container:
                             
                             fig_stoch.add_trace(go.Scatter(
                                 x=ta_df.index,
-                                y=ta_df['STOCHd_14_3_3'],
+                                y=ta_df['Stoch_D'],
                                 mode='lines',
                                 name='%D',
                                 line=dict(color='red', width=1)
