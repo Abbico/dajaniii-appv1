@@ -1,5 +1,4 @@
 
-# [START DAJANIII APP]
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -9,7 +8,6 @@ from datetime import datetime
 from pypdf import PdfReader
 import re
 
-# Page setup
 st.set_page_config(page_title="DAJANIII", layout="wide")
 
 st.markdown("""
@@ -28,7 +26,6 @@ with st.sidebar:
     csv = st.file_uploader("Upload Schwab CSV", type="csv")
     pdf = st.file_uploader("Upload IBKR PDF", type="pdf")
 
-# Fallback sample
 df = pd.DataFrame({'Stock': ['AAPL', 'MSFT'], 'Shares': [10, 5], 'Purchase Price': [150, 250], 'Term': ['Long', 'Short']})
 
 if csv:
@@ -58,7 +55,6 @@ elif pdf:
     except Exception as e:
         st.error(f"PDF Error: {e}")
 
-# Prices
 @st.cache_data(ttl=300)
 def prices(symbols):
     out = {}
@@ -87,4 +83,3 @@ if not df.empty:
     st.subheader("📊 Allocation")
     fig = px.pie(df, values='Value', names='Stock', title='Portfolio Allocation')
     st.plotly_chart(fig, use_container_width=True)
-# [END DAJANIII APP]
